@@ -3,7 +3,7 @@ name: Build B-0 DNS Probe
 on:
   push:
     branches: [ "main", "master" ]
-  workflow_dispatch: # 支持网页上手动点击按钮触发构建
+  workflow_dispatch:
 
 jobs:
   build:
@@ -12,34 +12,48 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: Install Build Tools & ARM64 Cross Toolchain
+      - name: Setup Multiarch Repos & Install Tools
         run: |
+          # 1. 限制系统自带源只拉取 amd64，避免 404
+          sudo sed -i 's/URIs:/Architectures: amd64\nURIs:/g' /etc/apt/sources.list.d/ubuntu.sources
+
+          # 2. 为 arm64 添加专门的 ports.ubuntu.com 源
+          sudo tee /etc/apt/sources.list.d/arm64.sources << 'EOF'
+          Types: deb
+          URIs: http://ports.ubuntu.com/ubuntu-ports/
+          Suites: noble noble-updates noble-backports noble-security
+          Components: main restricted universe multiverse
+          Architectures: arm64
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
+
+          # 3. 添加 arm64 架构并更新索引
           sudo dpkg --add-architecture arm64
           sudo apt-get update
+
+          # 4. 安装编译器与 arm64 依赖库
           sudo apt-get install -y \
-            clang llvm \
-            bpftool \
+            clang llvm bpftool \
             gcc-aarch64-linux-gnu \
+            libbpf-dev:arm64 \
             libelf-dev:arm64 \
-            zlib1g-dev:arm64 \
-            libbpf-dev:arm64
+            zlib1g-dev:arm64
 
       - name: Compile eBPF & Userspace Loader
         run: |
-          # 1. 编译 BPF 字节码
+          # 编译 BPF 字节码
           clang -g -O2 -target bpf -D__TARGET_ARCH_arm64 -c poc_dns.bpf.c -o poc_dns.bpf.o
 
-          # 2. 生成 BPF 骨架头文件
+          # 生成骨架头文件
           bpftool gen skeleton poc_dns.bpf.o > poc_dns.skel.h
 
-          # 3. 交叉编译为 aarch64 静态二进制
+          # 交叉编译静态二进制（显式指明 arm64 库路径）
           aarch64-linux-gnu-gcc -O2 -Wall poc_dns.c -o poc_dns \
+            -I/usr/include/aarch64-linux-gnu \
+            -L/usr/lib/aarch64-linux-gnu \
             -lbpf -lelf -lz -static
 
-          # 4. 检查文件格式
           file poc_dns
 
       - name: Upload Artifact

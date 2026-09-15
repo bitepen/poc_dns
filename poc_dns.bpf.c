@@ -2,6 +2,10 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
 
+#ifndef IPPROTO_UDP
+#define IPPROTO_UDP 17
+#endif
+
 char LICENSE[] SEC("license") = "GPL";
 
 // 探测应用通过 connect() 显式连接 DNS 53 端口

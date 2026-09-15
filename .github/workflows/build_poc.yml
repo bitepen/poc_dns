@@ -1,0 +1,49 @@
+name: Build B-0 DNS Probe
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # 支持网页上手动点击按钮触发构建
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Build Tools & ARM64 Cross Toolchain
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang llvm \
+            bpftool \
+            gcc-aarch64-linux-gnu \
+            libelf-dev:arm64 \
+            zlib1g-dev:arm64 \
+            libbpf-dev:arm64
+
+      - name: Compile eBPF & Userspace Loader
+        run: |
+          # 1. 编译 BPF 字节码
+          clang -g -O2 -target bpf -D__TARGET_ARCH_arm64 -c poc_dns.bpf.c -o poc_dns.bpf.o
+
+          # 2. 生成 BPF 骨架头文件
+          bpftool gen skeleton poc_dns.bpf.o > poc_dns.skel.h
+
+          # 3. 交叉编译为 aarch64 静态二进制
+          aarch64-linux-gnu-gcc -O2 -Wall poc_dns.c -o poc_dns \
+            -lbpf -lelf -lz -static
+
+          # 4. 检查文件格式
+          file poc_dns
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: poc_dns-arm64
+          path: poc_dns

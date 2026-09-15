@@ -32,14 +32,15 @@ jobs:
           sudo dpkg --add-architecture arm64
           sudo apt-get update
 
-          # 4. 安装编译器与 arm64 内核头文件及依赖
+          # 4. 安装编译器与 arm64 内核头文件及静态依赖库（补齐 libzstd-dev）
           sudo apt-get install -y \
             clang llvm \
             gcc-aarch64-linux-gnu \
             linux-libc-dev:arm64 \
             libbpf-dev:arm64 \
             libelf-dev:arm64 \
-            zlib1g-dev:arm64
+            zlib1g-dev:arm64 \
+            libzstd-dev:arm64
 
           # 5. 补齐 BPF 编译所需的 asm 头文件软链接
           sudo ln -sf /usr/include/aarch64-linux-gnu/asm /usr/include/asm
@@ -47,11 +48,10 @@ jobs:
           # 6. 下载官方独立静态 bpftool
           curl -sL https://github.com/libbpf/bpftool/releases/download/v7.4.0/bpftool-v7.4.0-amd64.tar.gz | sudo tar -xzf - -C /usr/local/bin/
           sudo chmod +x /usr/local/bin/bpftool
-          bpftool --version
 
       - name: Compile eBPF & Userspace Loader
         run: |
-          # 1. 编译 BPF 字节码（显式带上 aarch64 头文件路径）
+          # 1. 编译 BPF 字节码
           clang -g -O2 -target bpf -D__TARGET_ARCH_arm64 \
             -I/usr/include/aarch64-linux-gnu \
             -I/usr/include \
@@ -60,11 +60,11 @@ jobs:
           # 2. 生成骨架头文件
           bpftool gen skeleton poc_dns.bpf.o > poc_dns.skel.h
 
-          # 3. 交叉编译静态二进制
+          # 3. 交叉编译静态二进制（加上 -lzstd）
           aarch64-linux-gnu-gcc -O2 -Wall poc_dns.c -o poc_dns \
             -I/usr/include/aarch64-linux-gnu \
             -L/usr/lib/aarch64-linux-gnu \
-            -lbpf -lelf -lz -static
+            -lbpf -lelf -lz -lzstd -static
 
           file poc_dns
 

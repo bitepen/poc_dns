@@ -15,7 +15,7 @@ jobs:
 
       - name: Setup Multiarch Repos & Install Tools
         run: |
-          # 1. 限制系统自带源只拉取 amd64，避免 404
+          # 1. 限制自带源只拉取 amd64
           sudo sed -i 's/URIs:/Architectures: amd64\nURIs:/g' /etc/apt/sources.list.d/ubuntu.sources
 
           # 2. 为 arm64 添加专门的 ports.ubuntu.com 源
@@ -32,13 +32,18 @@ jobs:
           sudo dpkg --add-architecture arm64
           sudo apt-get update
 
-          # 4. 安装编译器与 arm64 依赖库
+          # 4. 安装编译器与依赖库（移除虚拟包 bpftool）
           sudo apt-get install -y \
-            clang llvm bpftool \
+            clang llvm \
             gcc-aarch64-linux-gnu \
             libbpf-dev:arm64 \
             libelf-dev:arm64 \
             zlib1g-dev:arm64
+
+          # 5. 下载官方独立静态 bpftool (主机 amd64 运行)
+          curl -sL https://github.com/libbpf/bpftool/releases/download/v7.4.0/bpftool-v7.4.0-amd64.tar.gz | sudo tar -xzf - -C /usr/local/bin/
+          sudo chmod +x /usr/local/bin/bpftool
+          bpftool --version
 
       - name: Compile eBPF & Userspace Loader
         run: |
@@ -48,7 +53,7 @@ jobs:
           # 生成骨架头文件
           bpftool gen skeleton poc_dns.bpf.o > poc_dns.skel.h
 
-          # 交叉编译静态二进制（显式指明 arm64 库路径）
+          # 交叉编译静态二进制
           aarch64-linux-gnu-gcc -O2 -Wall poc_dns.c -o poc_dns \
             -I/usr/include/aarch64-linux-gnu \
             -L/usr/lib/aarch64-linux-gnu \
